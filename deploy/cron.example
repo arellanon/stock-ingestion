@@ -1,0 +1,8 @@
+# Adjust username/path. Host local timezone; hourly, Mon-Fri. No automatic installation.
+# Monday updates also reconcile weekends; cron misses can be recovered by manual update.
+0 * * * 1-5 cd /home/nahuel/Documents/Projects/stock-ingestion && /usr/bin/flock -n /home/nahuel/.cache/stock-ingestion.lock .venv/bin/python -m stock_predictor.ingestion update >> ingestion.log 2>&1
+# systemd user timer installation (after adjusting service paths):
+# mkdir -p ~/.config/systemd/user
+# cp deploy/stock-ingestion.{service,timer} ~/.config/systemd/user/
+# systemctl --user daemon-reload
+# systemctl --user enable --now stock-ingestion.timer

@@ -1,0 +1,14 @@
+.env
+.venv/
+__pycache__/
+.pytest_cache/
+*.egg-info/
+*.db
+exports/
+.aws/
+.codex/
+.agents/
+*.pyc
+.coverage
+*.log
+*.dump

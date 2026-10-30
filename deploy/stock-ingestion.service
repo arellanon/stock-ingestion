@@ -1,0 +1,6 @@
+[Unit]
+Description=Stock historical data update
+[Service]
+Type=oneshot
+WorkingDirectory=%h/Documents/Projects/stock-ingestion
+ExecStart=/usr/bin/flock -n %h/.cache/stock-ingestion.lock %h/Documents/Projects/stock-ingestion/.venv/bin/python -m stock_predictor.ingestion update
