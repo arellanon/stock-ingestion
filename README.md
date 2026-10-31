@@ -37,6 +37,141 @@ con responsabilidades idénticas. Los servicios consumen interfaces de dominio y
 de UoW, nunca conexiones SQL ni objetos de proveedores. La concurrencia de descarga es **1**
 por diseño para el equipo local de 8 GB; se evita paralelismo innecesario y presión sobre las APIs.
 
+### Modelo de datos (DER)
+
+El siguiente diagrama representa el esquema relacional definido en
+[`src/migrations_snapshot.py`](src/migrations_snapshot.py). Las tablas de series temporales
+(`market_data`, `ingestion_runs`, `ingestion_state`, `ingestion_coverage` y
+`data_quality_issues`) comparten las dimensiones del origen: instrumento, proveedor, feed,
+intervalo, ajuste y sesión.
+
+```mermaid
+erDiagram
+    data_providers ||--o{ provider_feeds : ofrece
+    data_providers ||--o{ instrument_identifiers : identifica
+    data_providers ||--o{ corporate_actions : publica
+    instruments ||--o{ instrument_identifiers : tiene
+    instruments ||--o{ market_data : contiene
+    instruments ||--o{ corporate_actions : recibe
+
+    provider_feeds ||--o{ market_data : alimenta
+    provider_feeds ||--o{ ingestion_runs : usa
+    provider_feeds ||--o{ ingestion_state : controla
+    provider_feeds ||--o{ ingestion_coverage : cubre
+    provider_feeds ||--o{ data_quality_issues : diagnostica
+
+    ingestion_runs ||--o{ market_data : genera
+    ingestion_runs ||--o{ corporate_actions : genera
+    ingestion_runs ||--o{ data_quality_issues : registra
+    ingestion_runs ||--o{ data_revisions : audita
+
+    data_providers {
+        string name PK
+    }
+    provider_feeds {
+        string provider PK, FK
+        string name PK
+    }
+    instruments {
+        string id PK
+        string ticker
+        boolean enabled
+        json metadata
+    }
+    instrument_identifiers {
+        string id PK
+        string instrument_id FK
+        string provider FK
+        string symbol
+        string external_id
+        date valid_from
+        date valid_to
+    }
+    ingestion_runs {
+        string id PK
+        string instrument_id FK
+        string provider FK
+        string feed FK
+        string interval
+        string adjustment
+        string session
+        datetime start
+        datetime end
+        string status
+        integer count
+    }
+    market_data {
+        string instrument_id PK, FK
+        string provider PK, FK
+        string feed PK, FK
+        string interval PK
+        string adjustment PK
+        string session PK
+        datetime timestamp PK
+        date session_date
+        decimal open
+        decimal high
+        decimal low
+        decimal close
+        bigint volume
+        boolean complete
+        string run_id FK
+    }
+    ingestion_state {
+        string instrument_id PK, FK
+        string provider PK, FK
+        string feed PK, FK
+        string interval PK
+        string adjustment PK
+        string session PK
+        datetime cursor
+    }
+    ingestion_coverage {
+        string instrument_id PK, FK
+        string provider PK, FK
+        string feed PK, FK
+        string interval PK
+        string adjustment PK
+        string session PK
+        datetime start PK
+        datetime end PK
+    }
+    corporate_actions {
+        string instrument_id PK, FK
+        string provider PK, FK
+        string kind PK
+        date ex_date PK
+        string external_id PK
+        decimal value
+        string run_id FK
+    }
+    data_quality_issues {
+        string id PK
+        string instrument_id FK
+        string provider FK
+        string feed FK
+        string interval
+        string adjustment
+        string session
+        string run_id FK
+        string code
+        datetime timestamp
+    }
+    data_revisions {
+        string id PK
+        string entity
+        json identity
+        json previous
+        json current
+        string run_id FK
+        datetime created_at
+    }
+```
+
+Las relaciones hacia `provider_feeds` son claves foráneas compuestas (`provider`, `feed`).
+Las claves primarias de `market_data`, `ingestion_state` e `ingestion_coverage` también son
+compuestas por las dimensiones de la serie; en `market_data` se agrega `timestamp`.
+
 ## Instalación en Linux Mint 22.3
 
 Desde la carpeta descomprimida:
