@@ -172,6 +172,28 @@ Las relaciones hacia `provider_feeds` son claves foráneas compuestas (`provider
 Las claves primarias de `market_data`, `ingestion_state` e `ingestion_coverage` también son
 compuestas por las dimensiones de la serie; en `market_data` se agrega `timestamp`.
 
+### Descripción de las tablas
+
+| Tabla | Descripción | Información principal |
+|---|---|---|
+| `data_providers` | Catálogo de proveedores externos de datos bursátiles. | Nombre del proveedor, por ejemplo `yahoo`, `alpaca` o `ibkr`. |
+| `provider_feeds` | Catálogo de feeds ofrecidos por cada proveedor. Permite distinguir fuentes como IEX, SIP o SMART. | Proveedor y nombre del feed. |
+| `instruments` | Catálogo interno de instrumentos financieros que el sistema sigue. | Ticker, estado habilitado y metadatos del instrumento. |
+| `instrument_identifiers` | Mapeo entre un instrumento interno y su identificación en un proveedor concreto. | Símbolo, identificador externo y período de validez. |
+| `market_data` | Tabla principal de información bursátil. Guarda las velas o barras de mercado normalizadas. | OHLCV, timestamp, intervalo, sesión, ajuste, completitud, proveedor y procedencia. |
+| `corporate_actions` | Eventos corporativos que pueden modificar la interpretación histórica de los precios. | Splits, dividendos u otros eventos, fecha efectiva, valor y proveedor. |
+| `ingestion_runs` | Registro de cada bloque o ejecución de descarga de datos. | Rango solicitado, estado, cantidad de registros, fechas recibidas y error. |
+| `ingestion_state` | Estado incremental de una serie para poder reanudar o continuar la ingesta. | Cursor de avance por instrumento, proveedor, feed, intervalo, ajuste y sesión. |
+| `ingestion_coverage` | Rangos temporales que fueron procesados o cubiertos por una serie. | Inicio y fin de cada rango por dimensión de serie. |
+| `data_quality_issues` | Diagnósticos de calidad encontrados durante la ingesta o validación. | Código, mensaje, timestamp afectado y ejecución relacionada. |
+| `data_revisions` | Auditoría de cambios aplicados a datos existentes. | Entidad afectada, identidad del registro, valor anterior, valor nuevo y ejecución. |
+
+En términos funcionales, `market_data`, `corporate_actions`, `instruments` e
+`instrument_identifiers` representan la información de negocio. `data_providers` y
+`provider_feeds` describen las fuentes disponibles, mientras que `ingestion_runs`,
+`ingestion_state`, `ingestion_coverage`, `data_quality_issues` y `data_revisions` permiten
+controlar, diagnosticar y auditar el proceso de ingesta.
+
 ## Instalación en Linux Mint 22.3
 
 Desde la carpeta descomprimida:
@@ -206,6 +228,29 @@ CREATE ROLE stock_predictor LOGIN;
 CREATE DATABASE stock_predictor OWNER stock_predictor;
 \q
 ```
+
+### Zona horaria predeterminada de PostgreSQL
+
+Para que todas las conexiones del proyecto utilicen `America/New_York` por defecto,
+configurar la zona horaria para el usuario de la aplicación dentro de esta base:
+
+```bash
+sudo -u postgres psql
+```
+
+```sql
+ALTER ROLE stock_predictor IN DATABASE stock_predictor
+  SET timezone TO 'America/New_York';
+
+SHOW timezone;
+\q
+```
+
+La configuración se aplica a las conexiones nuevas del usuario `stock_predictor`; las
+conexiones ya abiertas deben reconectarse. También puede configurarse para toda la base con
+`ALTER DATABASE stock_predictor SET timezone TO 'America/New_York';`, pero la configuración
+por rol limita el cambio a este proyecto. La vista `public.vw_market_data` expone el valor
+efectivo en su campo `timezone` y calcula `session_date`/`session_time` con esa zona.
 
 Ingresar en `.env` el usuario y contraseña; si contiene caracteres reservados, codificarlos
 para una URL. No copiar credenciales a scripts ni versionarlas.
@@ -422,15 +467,22 @@ Tablas: `instruments`, `instrument_identifiers`, `data_providers`, `provider_fee
 
 Para consultar el modelo visual y el detalle de claves y relaciones, ver el [DER del esquema](docs/DER.md).
 
-La vista `public.vw_market_data` expone `ticker`, `session_date`, el campo calculado
-`session_time`, OHLC, volumen y completitud para consultas compactas desde PostgREST o SQL.
+La vista `public.vw_market_data` expone `ticker`, `timezone`, los campos calculados
+`session_date` y `session_time`, OHLC, volumen y completitud para consultas compactas desde
+PostgREST o SQL. `timezone` devuelve el nombre completo de la zona horaria de la sesión de
+PostgreSQL, por ejemplo `America/New_York` o `America/Argentina/Buenos_Aires`.
 El nombre correcto del catálogo es `instruments.ticker`.
 
 Identidad de vela: instrumento + proveedor + feed + intervalo + ajuste + sesión + timestamp.
 Todas las dimensiones son no nulas. Feeds y ejecuciones poseen integridad referencial.
 Precios `NUMERIC(24,10)`, volumen `BIGINT`, fechas/timestamps UTC y JSON de procedencia.
-`session_time` es un campo calculado de PostgREST a partir de `timestamp`; no se almacena
-físicamente. Su valor se convierte según la zona horaria de la sesión de PostgreSQL.
+`timezone`, `session_date` y `session_time` son campos calculados de la vista a partir de la
+configuración y de `timestamp`; `timezone` utiliza `current_setting('TIMEZONE')`.
+`session_date` y `session_time` no se almacenan físicamente en la vista;
+sus valores se convierten según la zona horaria de la sesión de PostgreSQL. La columna física
+`market_data.session_date` se mantiene para la lógica interna de ingesta y validación.
+No se usa una abreviatura como `EST` o `ART` porque puede ser ambigua o cambiar por horario
+de verano; el nombre IANA completo es más preciso.
 `NUMERIC` conserva precisión decimal; ocupa más espacio que `DOUBLE PRECISION`. SQLite
 usa conversión decimal y puede perder precisión, por lo que solo demuestra separación y
 contratos; no certifica equivalencia numérica con PostgreSQL.

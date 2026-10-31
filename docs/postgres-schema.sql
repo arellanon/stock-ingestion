@@ -126,17 +126,26 @@ CREATE INDEX ix_market_instrument_timestamp ON market_data (instrument_id, times
 
 CREATE INDEX ix_market_timestamp ON market_data (timestamp);
 
+CREATE OR REPLACE FUNCTION public.session_date(public.market_data)
+RETURNS DATE
+LANGUAGE sql
+STABLE
+AS $function$
+    SELECT ($1.timestamp AT TIME ZONE current_setting('TIMEZONE'))::date;
+$function$;
+
 CREATE OR REPLACE VIEW public.vw_market_data AS
 SELECT
     i.ticker,
-    m.session_date,
+    public.session_date(m) AS session_date,
     public.session_time(m) AS session_time,
     m.open,
     m.high,
     m.low,
     m.close,
     m.volume,
-    m.complete
+    m.complete,
+    current_setting('TIMEZONE') AS timezone
 FROM public.market_data AS m
 JOIN public.instruments AS i ON i.id = m.instrument_id;
 
